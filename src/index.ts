@@ -3,7 +3,7 @@ import { fromHono } from "chanfana";
 import { Hono } from "hono";
 import { Challenge } from "./endpoints/challenge";
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: Env }>({strict: false});
 
 const openapi = fromHono(app, {
   openapiVersion: "3.1",
