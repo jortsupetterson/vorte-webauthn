@@ -14,33 +14,27 @@ const toBase64Url = (bytes: Uint8Array): string => {
 };
 
 const deriveRpId = (hostname: string): string => {
-  const cleanHost = hostname.replace(/:\d+$/u, "");
-  if (cleanHost === "localhost" || cleanHost === "127.0.0.1") return cleanHost;
-  if (cleanHost === "vorte.app" || cleanHost.endsWith(".vorte.app"))
-    return "vorte.app";
+  const clean = hostname.replace(/:\d+$/u, "");
+  if (clean === "localhost" || clean === "127.0.0.1") return clean;
   return "vorte.app";
 };
 
-// fingerprint -> expiresAt (epoch ms)
 const ratelimitCache: Map<string, number> = new Map();
 const WINDOW_MS = 60_000;
 const LIMIT_HEADER = "1;w=60";
-const FINGERPRINT_RE = /^[a-fA-F0-9]{32}$/;
+const FINGERPRINT_RE = /^[a-f0-9]{32}$/i;
 
 export class Challenge extends OpenAPIRoute {
   schema = {
     tags: ["WebAuthn"],
     summary:
-      'Return a "transactionId" and "options" to start a fully discoverable WebAuthn assertion.',
-    // STRICT: header-validaatio regexillä
+      'Returns a "transactionId" and "options" to start a fully discoverable WebAuthn assertion.',
     request: {
       headers: z.object({
-        "x-fingerprint": Str()
-          .regex(
-            FINGERPRINT_RE,
-            "Invalid X-Fingerprint format (expected 32 hex characters)"
-          )
-          .transform((s) => s.trim()),
+        "x-fingerprint": Str().regex(
+          FINGERPRINT_RE,
+          "Invalid X-Fingerprint format (expected 32 hex characters)"
+        ),
       }),
     },
     responses: {
@@ -55,7 +49,7 @@ export class Challenge extends OpenAPIRoute {
                 options: z.object({
                   challenge: Str(),
                   rpId: Str(),
-                  userVerification: Str(), // "required"
+                  userVerification: Str(),
                   timeout: Num(),
                 }),
               }),
@@ -83,18 +77,7 @@ export class Challenge extends OpenAPIRoute {
         description: "Missing or invalid X-Fingerprint header",
         content: {
           "application/json": {
-            schema: z.object({
-              success: Bool(),
-              error: Str(),
-            }),
-            examples: {
-              bad: {
-                value: {
-                  success: false,
-                  error: "X-Fingerprint header is required or invalid",
-                },
-              },
-            },
+            schema: z.object({ success: Bool(), error: Str() }),
           },
         },
       },
@@ -102,18 +85,7 @@ export class Challenge extends OpenAPIRoute {
         description: "Too many requests (edge ratelimit per fingerprint)",
         content: {
           "application/json": {
-            schema: z.object({
-              success: Bool(),
-              error: Str(),
-            }),
-            examples: {
-              limited: {
-                value: {
-                  success: false,
-                  error: "Only 1 challenge per 60 seconds (per fingerprint)",
-                },
-              },
-            },
+            schema: z.object({ success: Bool(), error: Str() }),
           },
         },
       },
@@ -125,26 +97,21 @@ export class Challenge extends OpenAPIRoute {
     ctx.header("Vary", "X-Fingerprint");
     ctx.header("Content-Type", "application/json; charset=utf-8");
 
-    const {
-      headers: { "x-fingerprint": fingerprint },
-    } = await this.getValidatedData<typeof this.schema>();
+    const data = await this.getValidatedData<typeof this.schema>();
+    const fingerprint = data.headers["x-fingerprint"].trim();
 
     const hostname = new URL(ctx.req.url).hostname;
     const rpId = deriveRpId(hostname);
     const key = `${rpId}::${fingerprint}`;
 
     const now = Date.now();
-    const currentExpiresAt = ratelimitCache.get(key);
-
-    if (typeof currentExpiresAt === "number" && currentExpiresAt > now) {
-      const secondsLeft = Math.max(
-        1,
-        Math.ceil((currentExpiresAt - now) / 1000)
-      );
+    const until = ratelimitCache.get(key);
+    if (typeof until === "number" && until > now) {
+      const left = Math.max(1, Math.ceil((until - now) / 1000));
       ctx.header("RateLimit-Limit", LIMIT_HEADER);
       ctx.header("RateLimit-Remaining", "0");
-      ctx.header("RateLimit-Reset", String(secondsLeft));
-      ctx.header("Retry-After", String(secondsLeft));
+      ctx.header("RateLimit-Reset", String(left));
+      ctx.header("Retry-After", String(left));
       ctx.status(429);
       return {
         success: false,
@@ -159,16 +126,16 @@ export class Challenge extends OpenAPIRoute {
     ctx.header("RateLimit-Reset", "60");
 
     const transactionId = crypto.randomUUID();
-    const challengeBytes = new Uint8Array(32);
-    crypto.getRandomValues(challengeBytes);
-    const challengeB64Url = toBase64Url(challengeBytes);
+    const rnd = new Uint8Array(32);
+    crypto.getRandomValues(rnd);
+    const challenge = toBase64Url(rnd);
 
     return {
       success: true,
       result: {
         transactionId,
         options: {
-          challenge: challengeB64Url,
+          challenge,
           rpId,
           userVerification: "required",
           timeout: 60_000,
