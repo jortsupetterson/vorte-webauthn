@@ -1,17 +1,13 @@
+// src/index.ts
 import { fromHono } from "chanfana";
 import { Hono } from "hono";
 import { Challenge } from "./endpoints/challenge";
 
-// Start a Hono app
 const app = new Hono<{ Bindings: Env }>();
 
-// Setup OpenAPI registry
-const openapi = fromHono(app, {
-  docs_url: "/",
-});
+const openapi = fromHono(app, { docs_url: "/" });
 
-// Register OpenAPI endpoints
+// WebAuthn: fully discoverable assertion init
 openapi.get("/api/v1/webauthn/challenge", Challenge);
 
-// Export the Hono app
 export default app;
