@@ -13,4 +13,5 @@ const openapi = fromHono(app, {
 // Register OpenAPI endpoints
 openapi.get("/api/v1/webauthn/challenge", Challenge);
 
+// Export the Hono app
 export default app;
