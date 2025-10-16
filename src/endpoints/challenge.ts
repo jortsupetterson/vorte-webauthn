@@ -14,8 +14,8 @@ const FINGERPRINT_RE = /^[a-f0-9]{32}$/i;
 
 export class Challenge extends OpenAPIRoute {
   schema = {
-    tags: ["WebAuthn"],
-    summary: "Create a minimal WebAuthn transaction (login/registration).",
+    tags: ["Vorte", "WebAuthn"],
+    summary: "Initialize a minimal WebAuthn transaction (login/registration).",
     request: {
       headers: z.object({
         "x-fingerprint": Str()
@@ -28,7 +28,7 @@ export class Challenge extends OpenAPIRoute {
     },
     responses: {
       "200": {
-        description: "Transaction created",
+        description: "Transaction initiated",
         content: {
           "application/json": {
             schema: z.object({

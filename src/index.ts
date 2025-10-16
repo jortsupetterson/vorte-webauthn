@@ -4,6 +4,7 @@ import { fromHono } from "chanfana";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { Challenge } from "./endpoints/challenge";
+import { Register } from "./endpoints/register";
 
 globalThis.allowedOrigins ??= ["http://localhost:8787", "https://vorte.app"];
 globalThis.ratelimitCache ??= new Map<string, number>();
@@ -12,7 +13,6 @@ globalThis.txCache ??= new Map<string, string>();
 globalThis.normalizeOrigin = (origin: string) => {
   try {
     const u = new URL(origin);
-    // ei trailing slashia, pidä skeema+host(+port)
     return `${u.protocol}//${u.host}`;
   } catch {
     return "";
@@ -45,7 +45,7 @@ app.use(
 );
 
 const openapi = fromHono(app, {
-  openapiVersion: "3.1.0",
+  openapiVersion: "3.1.1",
   docs_url: "/api/v1/webauthn/docs",
   openapi_url: "/api/v1/webauthn/openapi.json",
   schema: {
@@ -62,5 +62,6 @@ const openapi = fromHono(app, {
 });
 
 openapi.get("/api/v1/webauthn/challenge", Challenge);
+openapi.post("/api/v1/webauthn/register", Register);
 
 export default app;

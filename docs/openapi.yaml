@@ -1,0 +1,227 @@
+openapi: "3.1.1"
+info:
+  title: "Vorte Credentials API"
+  version: "1.0.0"
+  description: "Public WebAuthn credential API for Vorte ERP"
+
+servers:
+  - url: "https://vorte.app/api/v1"
+    description: "production"
+
+paths:
+  /webauthn/challenge:
+    get:
+      tags: ["WebAuthn"]
+      summary: "Initialize a minimal WebAuthn transaction (login/registration)."
+      description: >
+        Returns a WebAuthn challenge for discoverable login/registration bootstrap.
+        Browser must include a persistent device fingerprint for rate limiting.
+        Browser may cache for 60 seconds; shared/edge caches must not store the response.
+      operationId: "webauthn_challenge"
+      parameters:
+        - in: header
+          name: x-fingerprint
+          required: true
+          description: "Client-provided fingerprint for rate limiting (32 hex)."
+          schema:
+            type: string
+            pattern: "^[a-f0-9]{32}$"
+            example: "0e75dfbfc3a182fa1f652635f7ee588c"
+      responses:
+        "200":
+          description: "Transaction initiated"
+          headers:
+            Cache-Control:
+              description: "Browser cache policy"
+              schema: { type: string }
+              example: "private, max-age=60, s-maxage=0"
+            RateLimit-Limit:
+              schema: { type: string }
+              example: "1;w=60"
+            RateLimit-Remaining:
+              schema: { type: integer }
+              example: 0
+            RateLimit-Reset:
+              schema: { type: integer }
+              example: 60
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChallengeOK"
+              examples:
+                ok:
+                  value:
+                    success: true
+                    result:
+                      transactionId: "0ff72376-a0b7-4a92-a2e9-a117ef916302"
+                      challenge: "IEm_pXJwb3-GVyBcQNhj1-gDSiLT_v-fRQE_A3j-N3o"
+        "400":
+          description: "Missing/invalid headers"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                missing_fingerprint:
+                  value:
+                    {
+                      success: false,
+                      error: "x-fingerprint header is required",
+                    }
+        "403":
+          description: "Origin not allowed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                cors_block:
+                  value: { success: false, error: "Origin not allowed" }
+        "429":
+          description: "Too many requests"
+          headers:
+            RateLimit-Limit:
+              schema: { type: string }
+              example: "1;w=60"
+            RateLimit-Remaining:
+              schema: { type: integer }
+              example: 0
+            RateLimit-Reset:
+              schema: { type: integer }
+              example: 37
+            Retry-After:
+              schema: { type: integer }
+              example: 37
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                throttled:
+                  value:
+                    {
+                      success: false,
+                      error: "Only 1 challenge per 60 seconds (per fingerprint)",
+                    }
+
+  /webauthn/register:
+    post:
+      summary: "Finalize WebAuthn credential registration"
+      operationId: "webauthn_register"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                transactionId:
+                  type: string
+                  format: uuid
+                credential:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    id:
+                      type: string
+                      description: "Base64url-encoded credential ID"
+                      pattern: "^[A-Za-z0-9_-]{16,}$"
+                    response:
+                      type: object
+                      additionalProperties: false
+                      properties:
+                        clientDataJSON:
+                          type: string
+                          description: "Base64url-encoded clientDataJSON"
+                          pattern: "^[A-Za-z0-9_-]{16,}$"
+                        attestationObject:
+                          type: string
+                          description: "Base64url-encoded attestation object"
+                          pattern: "^[A-Za-z0-9_-]{16,}$"
+                      required: ["clientDataJSON", "attestationObject"]
+                  required: ["id", "response"]
+              required: ["transactionId", "credential"]
+      responses:
+        "201":
+          description: "Credential successfully registered"
+          headers:
+            Cache-Control:
+              schema: { type: string }
+              example: "no-store"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterOK"
+              examples:
+                ok:
+                  value:
+                    success: true
+                    result:
+                      userId: "1d0d3a1b-4d52-4b7f-9f5c-2d9c2f6a9e7b"
+                      credentialId: "IEm_pXJwb3-GVyBcQNhj1-gDSiLT_v-fRQE_A3j-N3o"
+        "400":
+          description: "Invalid or missing fields"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                bad_request:
+                  value: { success: false, error: "Invalid payload" }
+        "429":
+          description: "Too many registration attempts per transaction"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                throttled:
+                  value:
+                    {
+                      success: false,
+                      error: "Only one registration per 60 seconds per transactionId",
+                    }
+
+components:
+  schemas:
+    ChallengeOK:
+      type: object
+      additionalProperties: false
+      properties:
+        success: { type: boolean, const: true }
+        result:
+          type: object
+          additionalProperties: false
+          properties:
+            transactionId: { type: string, format: uuid }
+            challenge: { type: string }
+          required: ["transactionId", "challenge"]
+      required: ["success", "result"]
+
+    RegisterOK:
+      type: object
+      additionalProperties: false
+      properties:
+        success: { type: boolean, const: true }
+        result:
+          type: object
+          additionalProperties: false
+          properties:
+            userId: { type: string, format: uuid }
+            credentialId:
+              type: string
+              description: "Base64url credential id"
+              pattern: "^[A-Za-z0-9_-]{16,}$"
+          required: ["userId", "credentialId"]
+      required: ["success", "result"]
+
+    Error:
+      type: object
+      additionalProperties: false
+      properties:
+        success: { type: boolean, const: false }
+        error: { type: string }
+      required: ["success", "error"]
+
+webhooks: {}
